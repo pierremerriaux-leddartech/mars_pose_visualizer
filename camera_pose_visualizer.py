@@ -152,7 +152,7 @@ class Runner:
                     self.config.selected_frames is not None
                     and i not in self.config.selected_frames
                 )
-                and self.config.show_image
+                #and self.config.show_image
             ):
                 skipped.append(i)
                 continue
