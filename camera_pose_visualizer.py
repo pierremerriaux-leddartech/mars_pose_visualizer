@@ -144,60 +144,84 @@ class Runner:
         skipped = []
         # loop over camera poses and plot camera coordinate systems
         all_boxes_corners = []
-        for i, camera_pose in enumerate(camera_poses):
+        for frame_idx, camera_pose in enumerate(camera_poses):
             sample = np.random.rand()
             if (
                 sample < self.config.skip_probability
                 or (
                     self.config.selected_frames is not None
-                    and i not in self.config.selected_frames
+                    and frame_idx not in self.config.selected_frames
                 )
                 #and self.config.show_image
             ):
-                skipped.append(i)
+                skipped.append(frame_idx)
                 continue
             # [n_frames, n_max_objects, [x,y,z,yaw_angle,track_id, 0]]
             # self.datamanager.train_dataset.metadata['obj_info'][0,0,0,:,:]
             if self.config.show_boxes and (
-                "obj_info" not in self.datamanager.train_dataset.metadata
-                or "obj_metadata" not in self.datamanager.train_dataset.metadata
+                "obj_class" not in self.datamanager.train_dataset.metadata
+                or "instances" not in self.datamanager.train_dataset.metadata
             ):
                 self.config.show_boxes = False
                 print("No object metadata found in this dataset")
 
             if self.config.show_boxes:
-                object_boxes = self.datamanager.train_dataset.metadata["obj_info"][
-                    i, 0, 0, :, :
-                ]
-                object_boxes = object_boxes.reshape(
-                    object_boxes.shape[0] // 2, object_boxes.shape[1] * 2
-                )
                 keep_boxes = 0
-                for object_idx, object_box in enumerate(object_boxes):
-                    if object_box[0] == -1:
+                object_instances = self.datamanager.train_dataset.metadata["instances"]
+                for instance_idx in range(object_instances.valid_mask.shape[0]):
+                    if not object_instances.valid_mask[instance_idx][frame_idx]:
                         continue
-                    x, y, z, yaw_angle, track_id_line, _ = object_box
-                    (
-                        object_id,
-                        length,
-                        height,
-                        width,
-                        class_id,
-                    ) = self.datamanager.train_dataset.metadata["obj_metadata"][
-                        int(track_id_line)
-                    ]
-                    print(f'object ID:{int(object_id)}, class ID:{int(class_id)}, id_object:{object_idx}')
-                    ax.plot([object_box[0]], [object_box[1]], [object_box[2]], "x")
-                    ax.text(object_box[0], object_box[1], object_box[2], f'ID:{int(object_id)} idx:{object_idx}')
+                    object_center = object_instances.centers[instance_idx][frame_idx].cpu()
+                    object_yaw = object_instances.yaws[instance_idx][frame_idx].cpu()
+                    length = object_instances.length[instance_idx].cpu()
+                    height = object_instances.height[instance_idx].cpu()
+                    width = object_instances.width[instance_idx].cpu()
+                    x,y,z = object_center
+                    print(f'object tracking ID:{int(object_instances.track_ids[instance_idx])}, class ID:{int(object_instances.category_ids[instance_idx])}, instance_idx:{instance_idx}')
+                    ax.plot([x], [y], [z], "x")
+                    ax.text(x, y, z, f'ID:{int(object_instances.track_ids[instance_idx])} idx:{instance_idx}')
                     box_corners = self.cuboid_to_3d_points(
-                        x, y, z, yaw_angle, length, height, width
+                        x,y,z, object_yaw, length, height, width
                     )
                     keep_boxes += 1
-                    print(f'{float(x):.2f}, {float(y):.2f}, {float(z):.2f}, {float(yaw_angle):.2f}, {float(length):.2f}, {float(height):.2f}, {float(width):.2f}')
+                    print(f'{float(x):.2f}, {float(y):.2f}, {float(z):.2f}, {float(object_yaw):.2f}, {float(length):.2f}, {float(height):.2f}, {float(width):.2f}')
                     
                     self.plot_cuboid(ax, box_corners)
+                # object_instances.centers.shape
+                # torch.Size([9, 10, 3])
+
+                # object_boxes = self.datamanager.train_dataset.metadata["obj_info"][
+                #     frame_idx, 0, 0, :, :
+                # ]
+                # object_boxes = object_boxes.reshape(
+                #     object_boxes.shape[0] // 2, object_boxes.shape[1] * 2
+                # )
+                # keep_boxes = 0
+                # for object_idx, object_box in enumerate(object_boxes):
+                #     if object_box[0] == -1:
+                #         continue
+                #     x, y, z, yaw_angle, track_id_line, _ = object_box
+                #     (
+                #         object_id,
+                #         length,
+                #         height,
+                #         width,
+                #         class_id,
+                #     ) = self.datamanager.train_dataset.metadata["obj_metadata"][
+                #         int(track_id_line)
+                #     ]
+                #     print(f'object ID:{int(object_id)}, class ID:{int(class_id)}, id_object:{object_idx}')
+                #     ax.plot([object_box[0]], [object_box[1]], [object_box[2]], "x")
+                #     ax.text(object_box[0], object_box[1], object_box[2], f'ID:{int(object_id)} idx:{object_idx}')
+                #     box_corners = self.cuboid_to_3d_points(
+                #         x, y, z, yaw_angle, length, height, width
+                #     )
+                #     keep_boxes += 1
+                #     print(f'{float(x):.2f}, {float(y):.2f}, {float(z):.2f}, {float(yaw_angle):.2f}, {float(length):.2f}, {float(height):.2f}, {float(width):.2f}')
+                    
+                #     self.plot_cuboid(ax, box_corners)
             
-            print(f'frame:{i}, nb boxes: {keep_boxes}')
+            print(f'frame:{frame_idx}, nb boxes: {keep_boxes}')
             # extract camera position and orientation
             camera_position = camera_pose[:3, 3]
             camera_orientation = camera_pose[:3, :3]
@@ -227,7 +251,7 @@ class Runner:
             )
             if self.config.show_image:
                 # load and display image
-                img_pil = Image.open(self.image_filenames[i])
+                img_pil = Image.open(self.image_filenames[frame_idx])
                 if img_pil.mode == "RGBA":
                     img_pil = img_pil.convert("RGB")
 
@@ -247,7 +271,7 @@ class Runner:
                     ::image_downsample_factor, ::image_downsample_factor
                 ]
                 img = img[::image_downsample_factor, ::image_downsample_factor]
-                ray_bundle = self.cameras.generate_rays(camera_indices=i, coords=coords)
+                ray_bundle = self.cameras.generate_rays(camera_indices=frame_idx, coords=coords)
                 origins = (
                     ray_bundle.origins + ray_bundle.directions * self.config.image_plane
                 ).reshape(*img.shape[:-1], 3)
@@ -273,7 +297,7 @@ class Runner:
                 camera_position[0],
                 camera_position[1],
                 camera_position[2],
-                str(i),
+                str(frame_idx),
                 color="black",
                 fontsize=10,
             )
